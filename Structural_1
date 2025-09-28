@@ -1,0 +1,33 @@
+// LegacyPaymentGateway.java (Existing Legacy System)
+public class LegacyPaymentGateway {
+    public void makePayment(String account, double amount) {
+        System.out.printf("Legacy system processing payment of %.2f for account %s%n", amount, account);
+    }
+}
+
+// PaymentGateway.java (Target Interface)
+public interface PaymentGateway {
+    void pay(String account, double amount);
+}
+
+// LegacyPaymentAdapter.java (Adapter)
+public class LegacyPaymentAdapter implements PaymentGateway {
+    private final LegacyPaymentGateway legacyGateway;
+
+    public LegacyPaymentAdapter(LegacyPaymentGateway legacyGateway) {
+        if (legacyGateway == null) throw new IllegalArgumentException("LegacyGateway cannot be null");
+        this.legacyGateway = legacyGateway;
+    }
+
+    @Override
+    public void pay(String account, double amount) {
+        if (account == null || account.isBlank()) {
+            throw new IllegalArgumentException("Account cannot be empty");
+        }
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Amount must be positive");
+        }
+        // Translate interface call to legacy call
+        legacyGateway.makePayment(account, amount);
+    }
+}
