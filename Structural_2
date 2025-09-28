@@ -1,0 +1,80 @@
+// Order.java (Component Interface)
+public interface Order {
+    double getCost();
+    String getDescription();
+}
+
+// BasicOrder.java (Concrete Component)
+public class BasicOrder implements Order {
+    @Override
+    public double getCost() {
+        return 100.0;  // base cost
+    }
+
+    @Override
+    public String getDescription() {
+        return "Basic Order";
+    }
+}
+
+// OrderDecorator.java (Base Decorator)
+public abstract class OrderDecorator implements Order {
+    protected final Order decoratedOrder;
+
+    public OrderDecorator(Order order) {
+        if (order == null) throw new IllegalArgumentException("Order cannot be null");
+        this.decoratedOrder = order;
+    }
+
+    @Override
+    public double getCost() {
+        return decoratedOrder.getCost();
+    }
+
+    @Override
+    public String getDescription() {
+        return decoratedOrder.getDescription();
+    }
+}
+
+// DiscountDecorator.java
+public class DiscountDecorator extends OrderDecorator {
+    private final double discountPercentage;
+
+    public DiscountDecorator(Order order, double discountPercentage) {
+        super(order);
+        if (discountPercentage < 0 || discountPercentage > 100) {
+            throw new IllegalArgumentException("Discount must be between 0 and 100");
+        }
+        this.discountPercentage = discountPercentage;
+    }
+
+    @Override
+    public double getCost() {
+        return decoratedOrder.getCost() * (1 - discountPercentage / 100);
+    }
+
+    @Override
+    public String getDescription() {
+        return decoratedOrder.getDescription() + String.format(", Discount %.1f%%", discountPercentage);
+    }
+}
+
+// GiftWrapDecorator.java
+public class GiftWrapDecorator extends OrderDecorator {
+    private final double giftWrapCost = 5.0;
+
+    public GiftWrapDecorator(Order order) {
+        super(order);
+    }
+
+    @Override
+    public double getCost() {
+        return decoratedOrder.getCost() + giftWrapCost;
+    }
+
+    @Override
+    public String getDescription() {
+        return decoratedOrder.getDescription() + ", Gift Wrapped";
+    }
+}
