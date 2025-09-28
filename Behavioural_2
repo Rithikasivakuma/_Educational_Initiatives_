@@ -1,0 +1,58 @@
+// PaymentStrategy.java
+public interface PaymentStrategy {
+    void pay(double amount);
+}
+
+// CreditCardPayment.java
+public class CreditCardPayment implements PaymentStrategy {
+    private final String cardNumber;
+
+    public CreditCardPayment(String cardNumber) {
+        if (cardNumber == null || cardNumber.isBlank()) {
+            throw new IllegalArgumentException("Card number cannot be empty");
+        }
+        this.cardNumber = cardNumber;
+    }
+
+    @Override
+    public void pay(double amount) {
+        System.out.printf("Paid %.2f using Credit Card ending with %s%n", amount, cardNumber.substring(cardNumber.length() - 4));
+    }
+}
+
+// PaypalPayment.java
+public class PaypalPayment implements PaymentStrategy {
+    private final String email;
+
+    public PaypalPayment(String email) {
+        if (email == null || email.isBlank() || !email.contains("@")) {
+            throw new IllegalArgumentException("Invalid PayPal email");
+        }
+        this.email = email;
+    }
+
+    @Override
+    public void pay(double amount) {
+        System.out.printf("Paid %.2f using PayPal account %s%n", amount, email);
+    }
+}
+
+// PaymentProcessor.java (Context)
+public class PaymentProcessor {
+    private PaymentStrategy strategy;
+
+    public PaymentProcessor(PaymentStrategy strategy) {
+        if (strategy == null) throw new IllegalArgumentException("Payment strategy cannot be null");
+        this.strategy = strategy;
+    }
+
+    public void setPaymentStrategy(PaymentStrategy strategy) {
+        if (strategy == null) throw new IllegalArgumentException("Payment strategy cannot be null");
+        this.strategy = strategy;
+    }
+
+    public void processPayment(double amount) {
+        if (amount <= 0) throw new IllegalArgumentException("Amount must be positive");
+        strategy.pay(amount);
+    }
+}
