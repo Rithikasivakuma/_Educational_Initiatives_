@@ -1,0 +1,504 @@
+import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+
+// ====== Singleton: OfficeConfig ======
+class OfficeConfig {
+    private static volatile OfficeConfig instance;
+    private static final Object lock = new Object();
+
+    private int roomCount;
+    private final Map<Integer, Integer> roomMaxCapacity = new HashMap<>();
+
+    private OfficeConfig() {}
+
+    public static OfficeConfig getInstance() {
+        if (instance == null) {
+            synchronized(lock) {
+                if (instance == null) {
+                    instance = new OfficeConfig();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public void configureRooms(int count) {
+        if (count <= 0) throw new IllegalArgumentException("Room count must be positive");
+        this.roomCount = count;
+        for (int i = 1; i <= count; i++) {
+            roomMaxCapacity.put(i, 1); // default capacity = 1
+        }
+    }
+
+    public int getRoomCount() {
+        return roomCount;
+    }
+
+    public void setRoomMaxCapacity(int roomNumber, int capacity) {
+        if (!roomMaxCapacity.containsKey(roomNumber)) {
+            throw new IllegalArgumentException("Invalid room number");
+        }
+        if (capacity <= 0) throw new IllegalArgumentException("Capacity must be positive");
+        roomMaxCapacity.put(roomNumber, capacity);
+    }
+
+    public int getRoomMaxCapacity(int roomNumber) {
+        return roomMaxCapacity.getOrDefault(roomNumber, 0);
+    }
+}
+
+// ====== Observer Pattern ======
+interface OccupancyObserver {
+    void update(int occupantCount);
+}
+
+class OccupancySubject {
+    private final Set<OccupancyObserver> observers = new HashSet<>();
+    private int occupantCount = 0;
+
+    public void addObserver(OccupancyObserver observer) {
+        observers.add(observer);
+    }
+
+    public void removeObserver(OccupancyObserver observer) {
+        observers.remove(observer);
+    }
+
+    public void setOccupants(int count) {
+        if (count < 0) throw new IllegalArgumentException("Occupant count cannot be negative");
+        this.occupantCount = count;
+        notifyObservers();
+    }
+
+    public int getOccupantCount() {
+        return occupantCount;
+    }
+
+    private void notifyObservers() {
+        for (OccupancyObserver observer : observers) {
+            observer.update(occupantCount);
+        }
+    }
+}
+
+class LightController implements OccupancyObserver {
+    private boolean lightsOn = false;
+
+    @Override
+    public void update(int occupantCount) {
+        if (occupantCount >= 2 && !lightsOn) {
+            lightsOn = true;
+            System.out.println("Lights turned ON.");
+        } else if (occupantCount < 2 && lightsOn) {
+            lightsOn = false;
+            System.out.println("Lights turned OFF.");
+        }
+    }
+
+    public boolean isLightsOn() {
+        return lightsOn;
+    }
+}
+
+class ACController implements OccupancyObserver {
+    private boolean acOn = false;
+
+    @Override
+    public void update(int occupantCount) {
+        if (occupantCount >= 2 && !acOn) {
+            acOn = true;
+            System.out.println("AC turned ON.");
+        } else if (occupantCount < 2 && acOn) {
+            acOn = false;
+            System.out.println("AC turned OFF.");
+        }
+    }
+
+    public boolean isAcOn() {
+        return acOn;
+    }
+}
+
+// ====== Room Class ======
+class Room {
+    private final int roomNumber;
+    private int maxCapacity;
+    private boolean booked = false;
+    private LocalTime bookingStart;
+    private int bookingDurationMinutes;
+    private OccupancySubject occupancySubject;
+    private Timer occupancyTimer;
+    private boolean occupied = false;
+
+    private static final int MIN_OCCUPANCY = 2;
+    private static final long RELEASE_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+
+    public Room(int roomNumber, int maxCapacity) {
+        if (roomNumber <= 0) throw new IllegalArgumentException("Invalid room number");
+        if (maxCapacity <= 0) throw new IllegalArgumentException("Invalid capacity");
+        this.roomNumber = roomNumber;
+        this.maxCapacity = maxCapacity;
+        this.occupancySubject = new OccupancySubject();
+        this.occupancyTimer = new Timer(true);
+    }
+
+    public int getRoomNumber() {
+        return roomNumber;
+    }
+
+    public int getMaxCapacity() {
+        return maxCapacity;
+    }
+
+    public void setMaxCapacity(int capacity) {
+        if (capacity <= 0) throw new IllegalArgumentException("Invalid capacity");
+        this.maxCapacity = capacity;
+    }
+
+    public synchronized boolean bookRoom(LocalTime startTime, int durationMinutes) {
+        if (booked) return false;
+        this.booked = true;
+        this.bookingStart = startTime;
+        this.bookingDurationMinutes = durationMinutes;
+        return true;
+    }
+
+    public synchronized boolean cancelBooking() {
+        if (!booked) return false;
+        booked = false;
+        bookingStart = null;
+        bookingDurationMinutes = 0;
+        setOccupants(0); // Mark room unoccupied on cancel
+        return true;
+    }
+
+    public synchronized boolean isBooked() {
+        return booked;
+    }
+
+    public synchronized void setOccupants(int count) {
+        if (count < 0 || count > maxCapacity) {
+            throw new IllegalArgumentException("Invalid occupant count");
+        }
+        occupancySubject.setOccupants(count);
+
+        if (count >= MIN_OCCUPANCY) {
+            occupied = true;
+            cancelReleaseTimer();
+            System.out.printf("Room %d is now occupied by %d persons. AC and lights turned on.%n", roomNumber, count);
+        } else {
+            if (occupied) {
+                System.out.printf("Room %d is now unoccupied. Starting release timer.%n", roomNumber);
+                occupied = false;
+                startReleaseTimer();
+            } else {
+                System.out.printf("Room %d occupancy insufficient to mark as occupied.%n", roomNumber);
+            }
+        }
+    }
+
+    public boolean isOccupied() {
+        return occupied;
+    }
+
+    public void addObserver(OccupancyObserver observer) {
+        occupancySubject.addObserver(observer);
+    }
+
+    private void startReleaseTimer() {
+        cancelReleaseTimer();
+        occupancyTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                synchronized(Room.this) {
+                    if (!occupied && booked) {
+                        booked = false;
+                        System.out.printf("Room %d booking released automatically due to inactivity.%n", roomNumber);
+                        // Optionally notify user here
+                    }
+                }
+            }
+        }, RELEASE_DELAY_MS);
+    }
+
+    private void cancelReleaseTimer() {
+        occupancyTimer.cancel();
+        occupancyTimer = new Timer(true);
+    }
+}
+
+// ====== BookingSystem Singleton ======
+class BookingSystem {
+    private static volatile BookingSystem instance;
+    private static final Object lock = new Object();
+
+    private final Map<Integer, Room> rooms = new HashMap<>();
+
+    private BookingSystem() {}
+
+    public static BookingSystem getInstance() {
+        if (instance == null) {
+            synchronized(lock) {
+                if (instance == null) {
+                    instance = new BookingSystem();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public void configureRooms(int roomCount) {
+        if (roomCount <= 0) throw new IllegalArgumentException("Room count must be positive");
+        OfficeConfig config = OfficeConfig.getInstance();
+        config.configureRooms(roomCount);
+        rooms.clear();
+        for (int i = 1; i <= roomCount; i++) {
+            Room room = new Room(i, config.getRoomMaxCapacity(i));
+            room.addObserver(new LightController());
+            room.addObserver(new ACController());
+            rooms.put(i, room);
+        }
+    }
+
+    public boolean setRoomMaxCapacity(int roomNumber, int capacity) {
+        Room room = rooms.get(roomNumber);
+        if (room == null) return false;
+        room.setMaxCapacity(capacity);
+        OfficeConfig.getInstance().setRoomMaxCapacity(roomNumber, capacity);
+        return true;
+    }
+
+    public boolean bookRoom(int roomNumber, LocalTime startTime, int durationMinutes) {
+        Room room = rooms.get(roomNumber);
+        if (room == null) return false;
+        return room.bookRoom(startTime, durationMinutes);
+    }
+
+    public boolean cancelBooking(int roomNumber) {
+        Room room = rooms.get(roomNumber);
+        if (room == null) return false;
+        return room.cancelBooking();
+    }
+
+    public boolean addOccupants(int roomNumber, int occupantCount) {
+        Room room = rooms.get(roomNumber);
+        if (room == null) return false;
+        try {
+            room.setOccupants(occupantCount);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public boolean isRoomBooked(int roomNumber) {
+        Room room = rooms.get(roomNumber);
+        if (room == null) return false;
+        return room.isBooked();
+    }
+
+    public Room getRoom(int roomNumber) {
+        return rooms.get(roomNumber);
+    }
+}
+
+// ====== Command Pattern ======
+interface Command {
+    void execute();
+}
+
+class ConfigureRoomsCommand implements Command {
+    private final int roomCount;
+
+    public ConfigureRoomsCommand(int roomCount) {
+        this.roomCount = roomCount;
+    }
+
+    @Override
+    public void execute() {
+        BookingSystem.getInstance().configureRooms(roomCount);
+        System.out.printf("Office configured with %d meeting rooms:%n", roomCount);
+        for (int i = 1; i <= roomCount; i++) {
+            System.out.printf("Room %d%n", i);
+        }
+    }
+}
+
+class SetRoomCapacityCommand implements Command {
+    private final int roomNumber;
+    private final int capacity;
+
+    public SetRoomCapacityCommand(int roomNumber, int capacity) {
+        this.roomNumber = roomNumber;
+        this.capacity = capacity;
+    }
+
+    @Override
+    public void execute() {
+        boolean success = BookingSystem.getInstance().setRoomMaxCapacity(roomNumber, capacity);
+        if (success) {
+            System.out.printf("Room %d maximum capacity set to %d.%n", roomNumber, capacity);
+        } else {
+            System.out.printf("Failed to set capacity for Room %d.%n", roomNumber);
+        }
+    }
+}
+
+class BookRoomCommand implements Command {
+    private final int roomNumber;
+    private final LocalTime startTime;
+    private final int duration;
+
+    public BookRoomCommand(int roomNumber, String startTimeStr, int duration) {
+        this.roomNumber = roomNumber;
+        this.duration = duration;
+        LocalTime time;
+        try {
+            time = LocalTime.parse(startTimeStr);
+        } catch (DateTimeParseException e) {
+            time = null;
+        }
+        this.startTime = time;
+    }
+
+    @Override
+    public void execute() {
+        if (startTime == null) {
+            System.out.println("Invalid time format. Use HH:mm");
+            return;
+        }
+        BookingSystem system = BookingSystem.getInstance();
+        Room room = system.getRoom(roomNumber);
+        if (room == null) {
+            System.out.printf("Room %d does not exist.%n", roomNumber);
+            return;
+        }
+        if (room.isBooked()) {
+            System.out.printf("Room %d is already booked during this time. Cannot book.%n", roomNumber);
+            return;
+        }
+        boolean booked = system.bookRoom(roomNumber, startTime, duration);
+        if (booked) {
+            System.out.printf("Room %d booked from %s for %d minutes.%n", roomNumber, startTime, duration);
+        } else {
+            System.out.printf("Failed to book Room %d.%n", roomNumber);
+        }
+    }
+}
+
+class CancelBookingCommand implements Command {
+    private final int roomNumber;
+
+    public CancelBookingCommand(int roomNumber) {
+        this.roomNumber = roomNumber;
+    }
+
+    @Override
+    public void execute() {
+        BookingSystem system = BookingSystem.getInstance();
+        if (!system.isRoomBooked(roomNumber)) {
+            System.out.printf("Room %d is not booked. Cannot cancel booking.%n", roomNumber);
+            return;
+        }
+        boolean cancelled = system.cancelBooking(roomNumber);
+        if (cancelled) {
+            System.out.printf("Booking for Room %d cancelled successfully.%n", roomNumber);
+        } else {
+            System.out.printf("Failed to cancel booking for Room %d.%n", roomNumber);
+        }
+    }
+}
+
+class AddOccupantsCommand implements Command {
+    private final int roomNumber;
+    private final int occupants;
+
+    public AddOccupantsCommand(int roomNumber, int occupants) {
+        this.roomNumber = roomNumber;
+        this.occupants = occupants;
+    }
+
+    @Override
+    public void execute() {
+        BookingSystem system = BookingSystem.getInstance();
+        Room room = system.getRoom(roomNumber);
+        if (room == null) {
+            System.out.printf("Room %d does not exist.%n", roomNumber);
+            return;
+        }
+        boolean success = system.addOccupants(roomNumber, occupants);
+        if (!success) {
+            System.out.printf("Failed to add occupants to Room %d.%n", roomNumber);
+        }
+    }
+}
+
+// ====== Main Application ======
+
+public class SmartOfficeFacilityApp {
+    private static final Scanner scanner = new Scanner(System.in);
+
+    public static void main(String[] args) {
+        System.out.println("Welcome to Smart Office Facility System!");
+        System.out.println("Enter commands. Type 'help' for a list of commands, 'exit' to quit.");
+
+        while (true) {
+            System.out.print("> ");
+            String input = scanner.nextLine().trim();
+            if (input.equalsIgnoreCase("exit")) {
+                System.out.println("Exiting system.");
+                break;
+            } else if (input.equalsIgnoreCase("help")) {
+                printHelp();
+            } else if (!input.isEmpty()) {
+                processCommand(input);
+            }
+        }
+    }
+
+    private static void printHelp() {
+        System.out.println("Available commands:");
+        System.out.println("Config room count <number>");
+        System.out.println("Config room max capacity <roomNumber> <capacity>");
+        System.out.println("Block room <roomNumber> <HH:mm> <durationMinutes>");
+        System.out.println("Cancel room <roomNumber>");
+        System.out.println("Add occupant <roomNumber> <count>");
+        System.out.println("exit - to quit");
+    }
+
+    private static void processCommand(String input) {
+        String[] parts = input.split("\\s+");
+        if (parts.length < 3) {
+            System.out.println("Invalid command. Type 'help' for usage.");
+            return;
+        }
+
+        String cmd = parts[0].toLowerCase();
+        try {
+            if (cmd.equals("config")) {
+                if (parts[1].equalsIgnoreCase("room")) {
+                    if (parts[2].equalsIgnoreCase("count") && parts.length == 4) {
+                        int count = Integer.parseInt(parts[3]);
+                        new ConfigureRoomsCommand(count).execute();
+                    } else if (parts[2].equalsIgnoreCase("max") && parts.length == 6 && parts[3].equalsIgnoreCase("capacity")) {
+                        int roomNumber = Integer.parseInt(parts[4]);
+                        int capacity = Integer.parseInt(parts[5]);
+                        new SetRoomCapacityCommand(roomNumber, capacity).execute();
+                    } else {
+                        System.out.println("Invalid Config command format.");
+                    }
+                } else {
+                    System.out.println("Invalid Config command format.");
+                }
+            } else if (cmd.equals("block")) {
+                if (parts[1].equalsIgnoreCase("room") && parts.length == 5) {
+                    int roomNumber = Integer.parseInt(parts[2]);
+                    String timeStr = parts[3];
+                    int duration = Integer.parseInt(parts[4]);
+                    new BookRoomCommand(roomNumber, timeStr, duration).execute();
+                } else {
+                    System.out.println("Invalid Block command format.");
+                }
+            } else if (cmd.equals("cancel")) {
+                if (parts[1].equalsIgnoreCase("room") && parts.length == 
