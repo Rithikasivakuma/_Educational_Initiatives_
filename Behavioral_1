@@ -1,0 +1,63 @@
+// Observer.java
+public interface Observer {
+    void update(String message);
+}
+
+// Subject.java
+public interface Subject {
+    void registerObserver(Observer o);
+    void removeObserver(Observer o);
+    void notifyObservers(String message);
+}
+
+// NewsFeed.java (Concrete Subject)
+import java.util.List;
+import java.util.ArrayList;
+
+public class NewsFeed implements Subject {
+    private final List<Observer> observers = new ArrayList<>();
+
+    @Override
+    public void registerObserver(Observer o) {
+        if (o == null) throw new IllegalArgumentException("Observer cannot be null");
+        observers.add(o);
+    }
+
+    @Override
+    public void removeObserver(Observer o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(String message) {
+        for (Observer observer : observers) {
+            try {
+                observer.update(message);
+            } catch (Exception e) {
+                System.err.println("Error notifying observer: " + e.getMessage());
+            }
+        }
+    }
+
+    public void publishNews(String news) {
+        System.out.println("NewsFeed publishing: " + news);
+        notifyObservers(news);
+    }
+}
+
+// Subscriber.java (Concrete Observer)
+public class Subscriber implements Observer {
+    private final String name;
+
+    public Subscriber(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Subscriber name cannot be empty");
+        }
+        this.name = name;
+    }
+
+    @Override
+    public void update(String message) {
+        System.out.println(name + " received news update: " + message);
+    }
+}
