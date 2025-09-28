@@ -1,0 +1,37 @@
+// Logger.java
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class Logger {
+    private static volatile Logger instance;
+    private static final Object lock = new Object();
+
+    private Logger() {
+        // private constructor to prevent instantiation
+    }
+
+    public static Logger getInstance() {
+        if (instance == null) {
+            synchronized(lock) {
+                if (instance == null) {
+                    instance = new Logger();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public void log(String level, String message) {
+        if (level == null || message == null) throw new IllegalArgumentException("Level and message cannot be null");
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        System.out.printf("[%s] [%s]: %s%n", timestamp, level.toUpperCase(), message);
+    }
+
+    public void info(String message) {
+        log("INFO", message);
+    }
+
+    public void error(String message) {
+        log("ERROR", message);
+    }
+}
